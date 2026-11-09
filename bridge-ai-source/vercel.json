@@ -1,1 +1,0 @@
-{"buildCommand":"node scripts/vercel-build.mjs","outputDirectory":"public","functions":{"api/coach.js":{"maxDuration":30}}}
