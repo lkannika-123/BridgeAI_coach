@@ -1,0 +1,90 @@
+diff --git a/bridge-ai-source/.env.example b/bridge-ai-source/.env.example
+new file mode 100644
+--- /dev/null
++++ b/bridge-ai-source/.env.example
+@@ -0,0 +1,2 @@
++OPENROUTER_API_KEY=
++OPENROUTER_MODEL=openai/gpt-4.1-mini
+diff --git a/bridge-ai-source/.gitignore b/bridge-ai-source/.gitignore
+new file mode 100644
+--- /dev/null
++++ b/bridge-ai-source/.gitignore
+@@ -0,0 +1,9 @@
++node_modules/
++dist/
++public/
++.env
++.env.*
++!.env.example
++.dev.vars
++.wrangler/
++.vercel/
+diff --git a/bridge-ai-source/.node-version b/bridge-ai-source/.node-version
+new file mode 100644
+--- /dev/null
++++ b/bridge-ai-source/.node-version
+@@ -0,0 +1 @@
++22
+diff --git a/bridge-ai-source/scripts/build.mjs b/bridge-ai-source/scripts/build.mjs
+--- a/bridge-ai-source/scripts/build.mjs
++++ b/bridge-ai-source/scripts/build.mjs
+@@ -9 +9 @@
+-await rm(resolve(root,'dist'),{recursive:true,force:true});await mkdir(resolve(root,'dist/server'),{recursive:true});await mkdir(resolve(root,'dist/.openai'),{recursive:true});await writeFile(resolve(root,'dist/server/index.js'),worker);await writeFile(resolve(root,'dist/.openai/hosting.json'),await readFile(resolve(root,'.openai/hosting.json')));console.log('Built dependency-free Worker with '+Object.keys(assets).length+' routes.');
++await rm(resolve(root,'dist'),{recursive:true,force:true});await mkdir(resolve(root,'dist/server'),{recursive:true});await mkdir(resolve(root,'dist/.openai'),{recursive:true});await writeFile(resolve(root,'dist/server/index.js'),worker);try{await writeFile(resolve(root,'dist/.openai/hosting.json'),await readFile(resolve(root,'.openai/hosting.json')));}catch(error){if(error.code!=='ENOENT')throw error;}console.log('Built dependency-free Worker with '+Object.keys(assets).length+' routes.');
+diff --git a/bridge-ai-source/tests/production.mjs b/bridge-ai-source/tests/production.mjs
+new file mode 100644
+--- /dev/null
++++ b/bridge-ai-source/tests/production.mjs
+@@ -0,0 +1,19 @@
++import assert from 'node:assert/strict';
++import worker from '../dist/server/index.js';
++for(const path of ['/','/app.mjs','/catalog.mjs','/matching.mjs','/style.css']){
++ const r=await worker.fetch(new Request('https://bridge.test'+path),{});
++ assert.equal(r.status,200,path);assert.ok((await r.text()).length>500,path);
++}
++const context={schemaVersion:1,industry:'food',task:'Make flyers',description:'Promote our weekly special',currentProcess:'manual',existingTools:{categories:['email'],names:'Gmail'},budget:{monthlyLimit:50},selectedTools:[{id:'canva'}],successMetric:'Record 5 redemptions in one week'};
++let sequence=0;
++const req=()=>new Request('https://bridge.test/api/coach',{method:'POST',headers:{'Content-Type':'application/json','CF-Connecting-IP':'test-'+(++sequence)},body:JSON.stringify(context)});
++let r=await worker.fetch(req(),{});assert.equal(r.status,503);assert.equal((await r.json()).live,false);
++const original=globalThis.fetch;
++try{
++ globalThis.fetch=async()=>new Response(JSON.stringify({choices:[{message:{content:'Review your offer, draft one flyer and track redemptions.'}}]}));
++ r=await worker.fetch(req(),{OPENROUTER_API_KEY:'test-only-not-a-real-key',OPENROUTER_MODEL:'test-model'});assert.equal(r.status,200);assert.equal((await r.json()).live,true);
++ globalThis.fetch=async()=>new Response('Unavailable',{status:502});
++ r=await worker.fetch(req(),{OPENROUTER_API_KEY:'test-only-not-a-real-key',OPENROUTER_MODEL:'test-model'});assert.equal(r.status,503);assert.equal((await r.json()).live,false);
++}finally{globalThis.fetch=original;}
++r=await worker.fetch(new Request('https://bridge.test/'),{});assert.equal(r.status,200);
++console.log('Production Worker passed: five frontend routes, missing key, mocked coach success, provider failure, site still available.');
+diff --git a/bridge-ai-source/wrangler.jsonc b/bridge-ai-source/wrangler.jsonc
+--- a/bridge-ai-source/wrangler.jsonc
++++ b/bridge-ai-source/wrangler.jsonc
+@@ -1,7 +1,24 @@
+ {
+- "name":"bridge-ai-small-business",
+- "main":"dist/server/index.js",
+- "compatibility_date":"2026-11-01",
+- "vars":{"OPENROUTER_MODEL":"openai/gpt-4.1-mini"},
+- "unsafe":{"bindings":[{"name":"COACH_RATE_LIMITER","type":"ratelimit","namespace_id":"1001","simple":{"limit":5,"period":60}}]}
++  "name": "bridgeai",
++  "main": "dist/server/index.js",
++  "compatibility_date": "2026-11-01",
++  "vars": {
++    "OPENROUTER_MODEL": "openai/gpt-4.1-mini"
++  },
++  "unsafe": {
++    "bindings": [
++      {
++        "name": "COACH_RATE_LIMITER",
++        "type": "ratelimit",
++        "namespace_id": "1001",
++        "simple": {
++          "limit": 5,
++          "period": 60
++        }
++      }
++    ]
++  },
++  "build": {
++    "command": "npm run build"
++  }
+ }
